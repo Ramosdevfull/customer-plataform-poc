@@ -1,0 +1,66 @@
+{
+  "realm": "customer-realm",
+  "enabled": true,
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": false,
+  "roles": {
+    "realm": [
+      {
+        "name": "USER",
+        "description": "Usuário padrão"
+      },
+      {
+        "name": "ADMIN",
+        "description": "Administrador"
+      }
+    ]
+  },
+  "users": [
+    {
+      "username": "admin-user",
+      "enabled": true,
+      "email": "admin@customer.local",
+      "firstName": "Admin",
+      "lastName": "User",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "admin123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["ADMIN", "USER"]
+    },
+    {
+      "username": "regular-user",
+      "enabled": true,
+      "email": "user@customer.local",
+      "firstName": "Regular",
+      "lastName": "User",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "user123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["USER"]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "customer-service",
+      "enabled": true,
+      "publicClient": true,
+      "protocol": "openid-connect",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "redirectUris": ["http://localhost:8082/*"],
+      "webOrigins": ["http://localhost:8082"]
+    }
+  ]
+}

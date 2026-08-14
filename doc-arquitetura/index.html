@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>demo-customer-service — Documentação Técnica e Funcional</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --bg-card: #1e293b;
+    --bg-code: #0b1120;
+    --border: #334155;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --accent: #38bdf8;
+    --accent-2: #818cf8;
+    --ok: #34d399;
+    --warn: #fbbf24;
+    --danger: #f87171;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.65;
+  }
+  header {
+    padding: 3rem 1.5rem 2rem;
+    text-align: center;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, #172554 0%, var(--bg) 100%);
+  }
+  header h1 { margin: 0; font-size: 2rem; color: #f8fafc; }
+  header p { color: var(--muted); margin: .5rem 0 0; }
+  main { max-width: 960px; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
+  nav {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1rem 1.5rem;
+    margin-bottom: 2.5rem;
+  }
+  nav h2 { margin: 0 0 .5rem; font-size: .9rem; text-transform: uppercase; letter-spacing: .08em; color: var(--accent); }
+  nav ul { margin: 0; padding-left: 1.2rem; columns: 2; }
+  nav a { color: var(--text); text-decoration: none; }
+  nav a:hover { color: var(--accent); }
+  section { margin-bottom: 3rem; }
+  h2 {
+    font-size: 1.5rem;
+    border-left: 4px solid var(--accent);
+    padding-left: .75rem;
+    color: #f8fafc;
+    margin-top: 0;
+  }
+  h3 { color: var(--accent-2); margin: 1.5rem 0 .5rem; }
+  h4 { color: var(--accent); margin: 1.2rem 0 .4rem; }
+  p { margin: .5rem 0; }
+  ul, ol { padding-left: 1.4rem; }
+  li { margin: .35rem 0; }
+  code {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    padding: .1rem .4rem;
+    border-radius: 4px;
+    font-family: "Cascadia Code", Consolas, monospace;
+    font-size: .88em;
+  }
+  pre {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.2rem;
+    overflow-x: auto;
+    font-size: .85em;
+  }
+  pre code { background: none; border: none; padding: 0; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: .92em;
+    margin: 1rem 0;
+  }
+  th, td { border: 1px solid var(--border); padding: .55rem .7rem; text-align: left; vertical-align: top; }
+  th { background: var(--bg-card); color: var(--accent); }
+  tr:nth-child(even) td { background: rgba(255,255,255,.02); }
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.2rem 1.5rem;
+    margin: 1rem 0;
+  }
+  .tag {
+    display: inline-block;
+    background: rgba(56,189,248,.12);
+    color: var(--accent);
+    border: 1px solid rgba(56,189,248,.35);
+    padding: .05rem .6rem;
+    border-radius: 999px;
+    font-size: .78em;
+    margin-right: .35rem;
+  }
+  .tag.green { background: rgba(52,211,153,.12); color: var(--ok); border-color: rgba(52,211,153,.35); }
+  .tag.amber { background: rgba(251,191,36,.12); color: var(--warn); border-color: rgba(251,191,36,.35); }
+  .tag.red { background: rgba(248,113,113,.12); color: var(--danger); border-color: rgba(248,113,113,.35); }
+  .ok { color: var(--ok); }
+  .warn { color: var(--warn); }
+  .danger { color: var(--danger); }
+  .badge {
+    display: inline-block;
+    background: var(--accent-2);
+    color: #0b1120;
+    font-weight: 700;
+    font-size: .75em;
+    border-radius: 5px;
+    padding: .05rem .55rem;
+    margin-right: .5rem;
+  }
+  footer {
+    text-align: center;
+    color: var(--muted);
+    border-top: 1px solid var(--border);
+    padding: 1.5rem;
+    font-size: .85em;
+  }
+  .diagram {
+    text-align: center;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.5rem;
+    margin: 1.2rem 0;
+  }
+  .diagram .box {
+    display: inline-block;
+    border: 1px solid var(--accent);
+    border-radius: 8px;
+    padding: .5rem 1rem;
+    margin: .3rem;
+    background: rgba(56,189,248,.06);
+    font-size: .85em;
+  }
+  .diagram .arrow { color: var(--muted); margin: 0 .3rem; }
+  .diagram .note { font-size: .8em; color: var(--muted); margin-top: .5rem; }
+  @media (max-width: 640px) {
+    nav ul { columns: 1; }
+    header h1 { font-size: 1.5rem; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>demo-customer-service</h1>
+  <p>Plataforma de gerenciamento de clientes — microsserviço Java 21 · Spring Boot · Arquitetura Hexagonal · Event-Driven</p>
+</header>
+
+<main>
+
+<nav>
+  <h2>Sumário</h2>
+  <ul>
+    <li><a href="#visao">1. Visão Geral e Caso de Uso</a></li>
+    <li><a href="#topologia">2. Topologia de Microsserviços</a></li>
+    <li><a href="#arquitetura">3. Arquitetura Funcional (Hexagonal)</a></li>
+    <li><a href="#fluxos">4. Fluxos Principais</a></li>
+    <li><a href="#rf">5. Requisitos Funcionais (RF)</a></li>
+    <li><a href="#rnf">6. Requisitos Não Funcionais (RNF)</a></li>
+    <li><a href="#api">7. API REST</a></li>
+    <li><a href="#sugestoes">8. Sugestões e Melhorias</a></li>
+    <li><a href="#aplicacoes">9. Onde Esta Arquitetura Pode Ser Aplicada</a></li>
+    <li><a href="#execucao">10. Passo a Passo — Como Subir e Testar</a></li>
+  </ul>
+</nav>
+
+<!-- ============================================================ -->
+<section id="visao">
+  <h2>1. Visão Geral e Caso de Uso</h2>
+
+  <p>
+    O <strong>demo-customer-service</strong> é um microsserviço que centraliza o
+    <strong>ciclo de vida de cadastro de clientes</strong> de um ecossistema maior
+    (por exemplo, uma plataforma financeira de crédito). Ele permite criar, editar,
+    consultar, filtrar e remover clientes, além de integrar uma consulta de
+    <strong>score de crédito</strong> externo e trocar informações com outros
+    sistemas de forma <strong>assíncrona via RabbitMQ</strong>.
+  </p>
+
+  <div class="card">
+    <strong>Caso de uso (cenário típico):</strong>
+    um usuário <em>ADMIN</em> cadastra um cliente novo (nome, CPF e e-mail).
+    Na sequência, o sistema:
+    <ol>
+      <li>valida os dados e impede CPF duplicado;</li>
+      <li>persiste o cliente com status <code>ACTIVE</code>;</li>
+      <li>publica o evento <code>CUSTOMER_CREATED</code> no RabbitMQ para que outros serviços reajam (CRM, BI, antifraude, e-mail de boas-vindas etc.);</li>
+      <li>disponibiliza a consulta <code>GET /customers/{id}/score</code>, que busca o score de crédito em um serviço externo usando o CPF do cliente;</li>
+      <li>consome eventos <code>CUSTOMER_STATUS_CHANGE</code> (ex.: bloquear ou reativar um cliente) de forma idempotente.</li>
+    </ol>
+    Toda a API é protegida por <strong>OAuth 2.0 / JWT</strong> com perfis de acesso
+    <code>USER</code> (somente leitura) e <code>ADMIN</code> (acesso total).
+  </div>
+
+  <p>
+    O foco do projeto é demonstrar, em código, boas práticas de engenharia de
+    software para um contexto de <em>microservices</em>: arquitetura hexagonal,
+    resiliência em integrações externas, mensageria idempotente com dead-letter
+    queue, segurança por tokens e execução da solução inteira com um único comando
+    Docker Compose.
+  </p>
+</section>
+
+<!-- ============================================================ -->
+<section id="topologia">
+  <h2>2. Topologia de Microsserviços</h2>
+
+  <p>
+    A solução é composta por <strong>5 serviços/containers independentes</strong>,
+    orquestrados por um único <code>docker-compose.yml</code>:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Serviço</th><th>Imagem / Stack</th><th>Porta</th><th>Função</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>demo-customer-service</code></td>
+        <td>Spring Boot 4.1.0 · Java 21 (Dockerfile próprio)</td>
+        <td>8082</td>
+        <td>Microsserviço principal: API REST, regras de negócio, persistência e mensageria.</td>
+      </tr>
+      <tr>
+        <td><code>postgres</code></td>
+        <td>postgres:16-alpine</td>
+        <td>5433 → 5432</td>
+        <td>Banco relacional com as tabelas <code>tb_customers</code> e <code>tb_processed_messages</code>.</td>
+      </tr>
+      <tr>
+        <td><code>rabbitmq</code></td>
+        <td>rabbitmq:3-management-alpine</td>
+        <td>5672 / 15672</td>
+        <td>Broker de mensagens (AMQP) com console de gerenciamento.</td>
+      </tr>
+      <tr>
+        <td><code>keycloak</code></td>
+        <td>quay.io/keycloak/keycloak:22.0</td>
+        <td>8080</td>
+        <td>Identity Provider (OAuth 2.0 / OIDC) que emite e valida os JWTs.</td>
+      </tr>
+      <tr>
+        <td><code>wiremock</code></td>
+        <td>rodolpheche/wiremock:2.28.0</td>
+        <td>8081</td>
+        <td>Mock do serviço externo de Score (<code>GET /scores/{cpf}</code>) com latência e falhas controladas.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="diagram">
+    <span class="box">Cliente / curl / Postman</span>
+    <span class="arrow">⇄</span>
+    <span class="box">demo-customer-service (8082)</span>
+    <br>
+    <span class="box">demo-customer-service</span>
+    <span class="arrow">→ JPA →</span>
+    <span class="box">PostgreSQL (5433)</span><br>
+    <span class="box">demo-customer-service</span>
+    <span class="arrow">→ HTTP (Resilience4j) →</span>
+    <span class="box">WireMock / Score (8081)</span><br>
+    <span class="box">demo-customer-service</span>
+    <span class="arrow">⇄ AMQP →</span>
+    <span class="box">RabbitMQ (5672)</span><br>
+    <span class="box">demo-customer-service</span>
+    <span class="arrow">→ OIDC/JWT →</span>
+    <span class="box">Keycloak (8080)</span>
+    <div class="note">O fluxo do token acontece no request (Resource Server valida o JWT emitido pelo Keycloak).</div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="arquitetura">
+  <h2>3. Arquitetura Funcional (Hexagonal — Ports and Adapters)</h2>
+
+  <p>
+    O microsserviço foi construído seguindo a
+    <strong>Arquitetura Hexagonal</strong> (Ports and Adapters), separando o
+    <em>núcleo de negócio</em> (domínio + casos de uso) das tecnologias externas
+    (Spring, JPA/Hibernate, RabbitMQ, HTTP).
+  </p>
+
+  <h3>Por que Hexagonal?</h3>
+  <ul>
+    <li><strong>Isolamento das regras de negócio:</strong> a entidade <code>Customer</code> e os casos de uso não conhecem Spring, banco ou mensageria.</li>
+    <li><strong>Facilidade de teste:</strong> casos de uso e lógica de domínio são testados unitariamente sem subir o contexto do Spring (JUnit 5 + Mockito).</li>
+    <li><strong>Resiliência e troca de adaptadores:</strong> a integração externa de Score pode ser simulada/substituída apenas trocando o adaptador de saída.</li>
+  </ul>
+
+  <div class="diagram">
+    <span class="box">REST Controller<br>(adaptador de entrada)</span>
+    <span class="arrow">→</span>
+    <span class="box">Use Cases<br>(Create / ChangeStatus / GetScore)</span>
+    <span class="arrow">→</span>
+    <span class="box">Domain<br>(Customer, ScoreInfo, Ports)</span>
+    <span class="arrow">←</span>
+    <span class="box">Adapters de saída<br>(JPA, RabbitMQ, HTTP)</span>
+    <div class="note">Regra: dependências sempre apontam para dentro (o domínio não depende de ninguém).</div>
+  </div>
+
+  <h3>Estrutura de pacotes</h3>
+  <pre><code>com.ramoscodev.customer
+├── domain/                      # Core da aplicação (sem dependência de framework)
+│   ├── model/                   # Customer, CustomerStatus, ScoreInfo
+│   ├── exception/               # CustomerNotFoundException, DuplicateCpfException
+│   └── port/out/                # CustomerRepositoryPort, ScoreClientPort, EventPublisherPort
+├── application/
+│   └── usecase/                 # CreateCustomerUseCase, ChangeCustomerStatusUseCase, GetCustomerScoreUseCase
+└── infrastructure/              # Adaptadores de entrada e saída + config
+    ├── adapters/
+    │   ├── in/web/              # CustomerController + DTOs (CustomerRequestDTO, CustomerResponseDTO)
+    │   ├── in/messaging/        # CustomerStatusListener + CustomerStatusChangeEvent (idempotente)
+    │   ├── out/persistence/     # CustomerEntity, CustomerRepositoryAdapter, ProcessedMessageEntity
+    │   ├── out/http/            # ScoreClientAdapter + ScoreHttpClient (Resilience4j)
+    │   └── out/messaging/       # RabbitMQEventPublisherAdapter
+    └── config/                  # SecurityConfig, RabbitMQConfig, RestTemplateConfig, GlobalExceptionHandler</code></pre>
+
+  <h3>Componentes-chave</h3>
+  <ul>
+    <li><strong>Ports de saída</strong> (interfaces no domínio):
+      <code>CustomerRepositoryPort</code>, <code>ScoreClientPort</code>, <code>EventPublisherPort</code> — definem <em>o que</em> o domínio precisa, sem dizer <em>como</em>.</li>
+    <li><strong>Adaptadores de saída</strong> (implementações na infraestrutura):
+      <code>CustomerRepositoryAdapter</code> (JPA), <code>ScoreClientAdapter/ScoreHttpClient</code> (RestTemplate + Resilience4j), <code>RabbitMQEventPublisherAdapter</code> (RabbitTemplate).</li>
+    <li><strong>Adaptadores de entrada</strong>: <code>CustomerController</code> (REST) e <code>CustomerStatusListener</code> (RabbitMQ listener).</li>
+    <li><strong>Configuração</strong>: <code>SecurityConfig</code> (JWT Resource Server + regras por perfil), <code>RabbitMQConfig</code> (filas, exchanges, DLX), <code>GlobalExceptionHandler</code> (@ControllerAdvice).</li>
+  </ul>
+</section>
+
+<!-- ============================================================ -->
+<section id="fluxos">
+  <h2>4. Fluxos Principais</h2>
+
+  <h3>4.1 Cadastro de cliente + evento (RF01/RF04)</h3>
+  <ol>
+    <li>O <code>CustomerController</code> recebe o <code>POST /customers</code> com nome/CPF/e-mail.</li>
+    <li>O <code>CreateCustomerUseCase</code> verifica CPF duplicado (<code>DuplicateCpfException</code>), define status <code>ACTIVE</code> e persiste via <code>CustomerRepositoryPort</code>.</li>
+    <li>O <code>RabbitMQEventPublisherAdapter</code> publica o evento <code>CUSTOMER_CREATED</code> na exchange <code>customer.exchange</code>, routing key <code>customer.created</code>, que fica na fila <code>customer.created.queue</code>.</li>
+  </ol>
+
+  <h3>4.2 Consulta de score com resiliência (RF03/RNF04)</h3>
+  <ol>
+    <li><code>GET /customers/{id}/score</code> → <code>GetCustomerScoreUseCase</code> busca o cliente e obtém o CPF.</li>
+    <li><code>ScoreHttpClient</code> chama o serviço externo <code>GET /scores/{cpf}</code> protegido por <strong>Retry (2 tentativas)</strong>, <strong>TimeLimiter (2s)</strong> e <strong>Circuit Breaker (janela 5, 50% de falhas, open 10s)</strong>.</li>
+    <li>Se falhar/estourar o tempo, o <em>fallback</em> retorna <code>score=0, classification=UNAVAILABLE</code> (resposta degradada graciosa).</li>
+  </ol>
+
+  <h3>4.3 Consumo de mudança de status com idempotência (RF05/RNF03)</h3>
+  <ol>
+    <li><code>CustomerStatusListener</code> consome <code>customer.status.change.queue</code>.</li>
+    <li>Verifica se o <code>eventId</code> já existe em <code>tb_processed_messages</code>; se sim, descarta (ACK) sem reprocessar.</li>
+    <li>Executa <code>ChangeCustomerStatusUseCase</code> e registra o <code>eventId</code> na tabela de mensagens processadas — tudo na mesma transação.</li>
+    <li>Em caso de falha irreversível, a mensagem vai para a DLQ <code>customer.status.change.dlq</code> via <strong>Dead Letter Exchange</strong>.</li>
+  </ol>
+
+  <h3>4.4 Autenticação e autorização (RF06/RNF02)</h3>
+  <ol>
+    <li>O cliente solicita um token no Keycloak (client <code>customer-service</code>, <em>direct access grants</em>).</li>
+    <li>O <code>SecurityConfig</code> atua como <strong>Resource Server</strong>: valida o JWT pelo issuer e converte o claim <code>realm_access.roles</code> em autoridades <code>ROLE_USER</code>/<code>ROLE_ADMIN</code>.</li>
+    <li>Regras: <code>GET /customers/**</code> exige <code>USER</code> ou <code>ADMIN</code>; demais operações (<code>POST/PUT/DELETE</code>) exige <code>ADMIN</code>.</li>
+  </ol>
+</section>
+
+<!-- ============================================================ -->
+<section id="rf">
+  <h2>5. Requisitos Funcionais (RF)</h2>
+
+  <table>
+    <thead>
+      <tr><th style="width:90px">RF</th><th>Descrição</th><th>Implementação</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><span class="badge">RF01</span></td>
+        <td><strong>Gerenciamento de Clientes</strong> — criação (POST), atualização (PUT), remoção (DELETE) e consulta por ID (GET) de clientes.</td>
+        <td><code>POST /customers</code>, <code>PUT /customers/{id}</code>, <code>DELETE /customers/{id}</code>, <code>GET /customers/{id}</code>.</td>
+      </tr>
+      <tr>
+        <td><span class="badge">RF02</span></td>
+        <td><strong>Listagem e Filtro</strong> — listagem geral, busca por nome e filtro por status.</td>
+        <td><code>GET /customers</code>, <code>GET /customers?status=ACTIVE|INACTIVE</code>, <code>GET /customers/search?name=...</code>.</td>
+      </tr>
+      <tr>
+        <td><span class="badge">RF03</span></td>
+        <td><strong>Consulta de Score Externo</strong> — consulta o serviço externo pelo CPF e retorna score + classificação.</td>
+        <td><code>GET /customers/{id}/score</code> → <code>ScoreHttpClient</code> → WireMock <code>GET /scores/{cpf}</code>.</td>
+      </tr>
+      <tr>
+        <td><span class="badge">RF04</span></td>
+        <td><strong>Publicação de Evento de Criação</strong> — ao criar cliente com sucesso, publica <code>CUSTOMER_CREATED</code> no RabbitMQ.</td>
+        <td><code>RabbitMQEventPublisherAdapter</code> → exchange <code>customer.exchange</code> → fila <code>customer.created.queue</code>.</td>
+      </tr>
+      <tr>
+        <td><span class="badge">RF05</span></td>
+        <td><strong>Processamento Assíncrono de Status</strong> — consome <code>CUSTOMER_STATUS_CHANGE</code> e atualiza o status do cliente.</td>
+        <td><code>CustomerStatusListener</code> (idempotente por <code>eventId</code>) → <code>ChangeCustomerStatusUseCase</code>.</td>
+      </tr>
+      <tr>
+        <td><span class="badge">RF06</span></td>
+        <td><strong>Autorização Baseada em Perfil</strong> — <code>USER</code> apenas consulta (GET); <code>ADMIN</code> acesso total.</td>
+        <td><code>SecurityConfig</code>: <code>GET /customers/**</code> → hasAnyRole(USER, ADMIN); demais → hasRole(ADMIN).</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ============================================================ -->
+<section id="rnf">
+  <h2>6. Requisitos Não Funcionais (RNF)</h2>
+
+  <table>
+    <thead>
+      <tr><th style="width:90px">RNF</th><th>Descrição</th><th>Implementação</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><span class="badge">RNF01</span></td>
+        <td><strong>Arquitetura e Linguagem</strong> — Java 21+ e Spring Boot.</td>
+        <td>Java 21, Spring Boot 4.1.0, Spring Cloud 2025.1.2 (Resilience4j 2.3.0).</td>
+      </tr>
+      <tr>
+        <td><span class="badge">RNF02</span></td>
+        <td><strong>Segurança</strong> — acesso protegido via OAuth 2.0 / JWT, aplicação como Resource Server.</td>
+        <td>Keycloak 22 + <code>spring-boot-starter-security-oauth2-resource-server</code>; validação de assinatura/issuer e mapeamento de roles.</td>
+      </tr>
+      <tr>
+        <td><span class="badge">RNF03</span></td>
+        <td><strong>Idempotência e Consistência Eventual</strong> — consumidor idempotente diante de mensagens duplicadas.</td>
+        <td>Tabela <code>tb_processed_messages</code> (eventId único); listener descarta duplicados com log informativo; status atualizado e marcação do evento na mesma transação.</td>
+      </tr>
+      <tr>
+        <td><span class="badge">RNF04</span></td>
+        <td><strong>Resiliência e Tratamento de Erros</strong> — Circuit Breaker, Timeout e Retry na integração de Score; erros tratados via @ControllerAdvice; DLQ no RabbitMQ.</td>
+        <td><code>ScoreHttpClient</code> com anotações Resilience4j + <code>fallbackScore</code>; <code>GlobalExceptionHandler</code> (404/409/400 e validação); filas <code>customer.status.change.dlq</code> + exchange DLX.</td>
+      </tr>
+      <tr>
+        <td><span class="badge">RNF05</span></td>
+        <td><strong>Testabilidade</strong> — testes unitários (JUnit 5/Mockito) e de integração (Testcontainers).</td>
+        <td>17 testes unitários (use cases, listener, adapters) + 6 testes de integração com PostgreSQL/RabbitMQ reais via Testcontainers (23 no total).</td>
+      </tr>
+      <tr>
+        <td><span class="badge">RNF06</span></td>
+        <td><strong>Containerização</strong> — solução completa executável via Docker Compose com um único comando.</td>
+        <td><code>docker compose up --build</code> sobe os 5 serviços com healthchecks e dependências ordenadas.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Configuração de resiliência (application.yml)</h3>
+  <pre><code>resilience4j:
+  circuitbreaker:
+    instances:
+      scoreService:
+        slidingWindowSize: 5          # janela de avaliação
+        failureRateThreshold: 50       # abre com ≥ 50% de falhas
+        waitDurationInOpenState: 10s   # tempo em estado OPEN
+        permittedNumberOfCallsInHalfOpenState: 3
+  timelimiter:
+    instances:
+      scoreService:
+        timeoutDuration: 2s           # estoura chamadas acima de 2s
+  retry:
+    instances:
+      scoreService:
+        maxAttempts: 2                 # 1 chamada + 1 nova tentativa
+        waitDuration: 500ms</code></pre>
+</section>
+
+<!-- ============================================================ -->
+<section id="api">
+  <h2>7. API REST</h2>
+
+  <p>
+    Base URL: <code>http://localhost:8082</code>. Todos os endpoints exigem o header
+    <code>Authorization: Bearer &lt;token&gt;</code>.
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Método</th><th>Endpoint</th><th>Perfis</th><th>Descrição</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>POST</code></td><td><code>/customers</code></td><td>ADMIN</td><td>Cria um cliente (retorna 201).</td></tr>
+      <tr><td><code>PUT</code></td><td><code>/customers/{id}</code></td><td>ADMIN</td><td>Atualiza nome/CPF/e-mail (retorna 200).</td></tr>
+      <tr><td><code>DELETE</code></td><td><code>/customers/{id}</code></td><td>ADMIN</td><td>Remove um cliente (retorna 204).</td></tr>
+      <tr><td><code>GET</code></td><td><code>/customers/{id}</code></td><td>USER, ADMIN</td><td>Busca cliente por ID.</td></tr>
+      <tr><td><code>GET</code></td><td><code>/customers</code></td><td>USER, ADMIN</td><td>Lista todos.</td></tr>
+      <tr><td><code>GET</code></td><td><code>/customers?status=INACTIVE</code></td><td>USER, ADMIN</td><td>Filtra por status.</td></tr>
+      <tr><td><code>GET</code></td><td><code>/customers/search?name=...</code></td><td>USER, ADMIN</td><td>Busca por nome (case-insensitive).</td></tr>
+      <tr><td><code>GET</code></td><td><code>/customers/{id}/score</code></td><td>USER, ADMIN</td><td>Score de crédito do cliente.</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Corpos de exemplo</h3>
+  <p>Requisição de criação:</p>
+  <pre><code>{
+  "name": "João da Silva",
+  "cpf": "12345678901",
+  "email": "joao@email.com"
+}</code></pre>
+  <p>Resposta de criação (201):</p>
+  <pre><code>{
+  "id": 1,
+  "name": "João da Silva",
+  "cpf": "12345678901",
+  "email": "joao@email.com",
+  "status": "ACTIVE"
+}</code></pre>
+  <p>Resposta do score (200) e resposta degradada (200):</p>
+  <pre><code>{ "cpf": "12345678901", "score": 750, "classification": "LOW_RISK" }
+{ "cpf": "12345678901", "score": 0, "classification": "UNAVAILABLE" }</code></pre>
+
+  <h3>Erros possíveis</h3>
+  <ul>
+    <li><code>400</code> — validação de campos (nome, CPF com 11 dígitos, e-mail) ou parâmetro inválido.</li>
+    <li><code>401</code> — token ausente/ inválido/expirado.</li>
+    <li><code>403</code> — perfil sem permissão (ex.: USER tentando criar).</li>
+    <li><code>404</code> — cliente não encontrado.</li>
+    <li><code>409</code> — CPF já cadastrado.</li>
+  </ul>
+</section>
+
+<!-- ============================================================ -->
+<section id="sugestoes">
+  <h2>8. Sugestões e Melhorias</h2>
+
+  <div class="card">
+    <span class="tag">S1</span> <strong>Transactional Outbox</strong> — hoje o evento <code>CUSTOMER_CREATED</code> é publicado dentro da mesma transação do cadastro; se o RabbitMQ estiver indisponível nesse instante, a publicação pode falhar. A melhor prática é persistir o evento em uma tabela <em>outbox</em> na mesma transação e publicar com um relé (outbox pattern) para garantir entrega.
+  </div>
+
+  <div class="card">
+    <span class="tag">S2</span> <strong>Observabilidade</strong> — adicionar Micrometer com métricas do Resilience4j (as do <code>scoreService</code> já estão habilitadas via <code>registerHealthIndicator</code>), Prometheus + Grafana, e distribui tracing com Micrometer Tracing.
+  </div>
+
+  <div class="card">
+    <span class="tag">S3</span> <strong>Documentação de API</strong> — integrar OpenAPI/Springdoc com Swagger UI (<code>springdoc-openapi-starter-webmvc-ui</code>) para descoberta e testes interativos dos endpoints.
+  </div>
+
+  <div class="card">
+    <span class="tag">S4</span> <strong>Migrações de schema</strong> — trocar <code>ddl-auto: update</code> por Flyway ou Liquibase para versionar o banco e permitir evolução segura em produção.
+  </div>
+
+  <div class="card">
+    <span class="tag">S5</span> <strong>Segredos e configuração</strong> — mover credenciais (usuário/senha do banco, credenciais do RabbitMQ, client secret) para variáveis de ambiente gerenciadas (Secret Manager / Kubernetes Secrets / Vault), evitando valores fixos em configuração.
+  </div>
+
+  <div class="card">
+    <span class="tag">S6</span> <strong>Validação de CPF</strong> — além dos 11 dígitos, validar os dígitos verificadores do CPF (algoritmo oficial) para impedir CPFs inválidos.
+  </div>
+
+  <div class="card">
+    <span class="tag">S7</span> <strong>Paginação</strong> — em listagens de grande volume, adicionar paginação (<code>Pageable</code>) em <code>GET /customers</code> e <code>/search</code>.
+  </div>
+
+  <div class="card">
+    <span class="tag">S8</span> <strong>CI/CD</strong> — pipeline de CI/CD (ex.: GitHub Actions): <code>mvn clean test</code>, análise estática (SonarQube), build e publicação da imagem no registry, deploy (Helm/Kubernetes ou ECS).
+  </div>
+
+  <div class="card">
+    <span class="tag">S9</span> <strong>Cache do score</strong> — o score varia pouco; um cache (Redis/Caffeine) por CPF reduz a carga sobre o serviço externo e a latência.
+  </div>
+
+  <div class="card">
+    <span class="tag">S10</span> <strong>Testes de contrato</strong> — usar testes de contrato (Pact) entre consumidores e provedores, e manter os mocks do WireMock alinhados ao contrato real.
+  </div>
+
+  <div class="card">
+    <span class="tag">S11</span> <strong>Segurança adicional</strong> — explorar <em>client credentials</em> para comunicação serviço-a-serviço, escopos por operação e revogação de tokens; hoje apenas <code>realm_access</code> é mapeado.
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="aplicacoes">
+  <h2>9. Onde Esta Aplicação e Arquitetura Podem Ser Utilizadas</h2>
+
+  <h3>Domínios / cenários de negócio</h3>
+  <ul>
+    <li><strong>Fintechs e bancos digitais:</strong> onboarding de clientes, cadastro para pré-análise de crédito e consulta de score — exatamente o fluxo simulado aqui.</li>
+    <li><strong>Plataformas de CRM e cobrança:</strong> centralização do ciclo de vida do cliente e integração com outras áreas por eventos.</li>
+    <li><strong>E-commerce e marketplaces:</strong> cadastro de contas/lojas com notificação assíncrona de criação e atualização de status (ativo/inativo).</li>
+    <li><strong>Saúde / educação / governo:</strong> qualquer sistema que precisa manter cadastros regulamentados com trilha de eventos e atualização assíncrona de status.</li>
+  </ul>
+
+  <h3>Padrões e situações técnicas</h3>
+  <ul>
+    <li><strong>Arquitetura baseada em eventos (event-driven):</strong> quando outros serviços precisam reagir à criação/alteração de clientes sem acoplamento síncrono.</li>
+    <li><strong>Integrações com sistemas externos instáveis ou lentos:</strong> o padrão de Circuit Breaker + Retry + Timeout + Fallback é ideal quando uma dependência (como bureaus de crédito) pode falhar ou demorar.</li>
+    <li><strong>Mensageria com entrega garantida e idempotência:</strong> quando a entrega "pelo menos uma vez" do broker pode gerar duplicatas e o consumidor precisa ser idempotente.</li>
+    <li><strong>Migração de monólitos:</strong> a arquitetura hexagonal facilita extrair o domínio de cliente de um sistema legado sem acoplar tecnologia.</li>
+    <li><strong>Provas de conceito e avaliações técnicas:</strong> serve como template reutilizável de microsserviço "sênior" com boas práticas completas e demo Docker Compose.</li>
+  </ul>
+
+  <h3>Quando <em>não</em> é a melhor escolha</h3>
+  <ul>
+    <li>CRUD simples com um único time e baixa escala — um monólito Spring Boot único reduz a complexidade operacional.</li>
+    <li>Quando não há demanda por consumo assíncrono — a mensageria adiciona complexidade sem retorno.</li>
+    <li>Equipes pequenas sem maturidade em observabilidade/operacional de infraestrutura distribuída.</li>
+  </ul>
+</section>
+
+<!-- ============================================================ -->
+<section id="execucao">
+  <h2>10. Passo a Passo — Como Subir e Testar</h2>
+
+  <h3>Pré-requisitos</h3>
+  <ul>
+    <li>Docker + Docker Compose instalados.</li>
+    <li>(Opcional, para rodar sem Docker) Java 21 e Maven 3.9+.</li>
+  </ul>
+
+  <h3>Passo 1 — Subir todo o ecossistema</h3>
+  <p>Na raiz do projeto (<code>customer-platform-datum</code>):</p>
+  <pre><code>docker compose up -d --build</code></pre>
+  <p>
+    Isso sobe <em>postgres</em>, <em>rabbitmq</em>, <em>keycloak</em>, <em>wiremock</em>
+    e <em>demo-customer-service</em> com dependências ordenadas. Aguarde todos ficarem
+    saudáveis e confira o status:
+  </p>
+  <pre><code>docker compose ps</code></pre>
+
+  <p>Endpoints acessíveis:</p>
+  <table>
+    <thead><tr><th>Serviço</th><th>URL</th><th>Credenciais</th></tr></thead>
+    <tbody>
+      <tr><td>API demo-customer-service</td><td><code>http://localhost:8082</code></td><td>token JWT (ver Passo 3)</td></tr>
+      <tr><td>Console RabbitMQ</td><td><code>http://localhost:15672</code></td><td><code>guest</code> / <code>guest</code></td></tr>
+      <tr><td>Keycloak Admin Console</td><td><code>http://localhost:8080/admin</code></td><td><code>admin</code> / <code>admin</code></td></tr>
+      <tr><td>WireMock (mock do Score)</td><td><code>http://localhost:8081</code></td><td>—</td></tr>
+      <tr><td>PostgreSQL</td><td><code>localhost:5433</code></td><td><code>user</code> / <code>password</code> / db <code>customer_db</code></td></tr>
+    </tbody>
+  </table>
+
+  <div class="card">
+    <strong>Nota sobre a porta do PostgreSQL:</strong> em ambiente local a porta
+    <code>5432</code> pode já estar em uso (outro Postgres). O compose expõe o banco na
+    porta host <code>5433</code> para evitar conflitos.
+  </div>
+
+  <h3>Passo 2 — (Opcional) Rodar os testes</h3>
+  <pre><code># Dentro do diretório demo-customer-service
+mvn clean test        # 23 testes (17 unitários + 6 de integração via Testcontainers)</code></pre>
+  <p>Obs.: os testes de integração sobem containers temporários de PostgreSQL e RabbitMQ; exigem o Docker disponível.</p>
+
+  <h3>Passo 3 — Obter um token JWT no Keycloak</h3>
+  <p>Usuário <code>admin-user</code> (perfil ADMIN — pode escrever):</p>
+  <pre><code>curl -X POST http://localhost:8080/realms/customer-realm/protocol/openid-connect/token \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "client_id=customer-service" \
+  -d "username=admin-user" \
+  -d "password=admin123" \
+  -d "grant_type=password"</code></pre>
+  <p>Guardar apenas o token em uma variável:</p>
+  <pre><code>TOKEN=$(curl -s -X POST http://localhost:8080/realms/customer-realm/protocol/openid-connect/token \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "client_id=customer-service" -d "username=admin-user" \
+  -d "password=admin123" -d "grant_type=password" \
+  | python3 -c "import sys,json;print(json.load(sys.stdin)['access_token'])")</code></pre>
+  <p>Usuário de perfil somente-leitura: <code>regular-user</code> / <code>user123</code>.</p>
+
+  <h3>Passo 4 — Exercitar a API</h3>
+  <pre><code># 4.1 Criar um cliente (ADMIN)
+curl -X POST http://localhost:8082/customers \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "João da Silva", "cpf": "12345678901", "email": "joao@email.com"}'
+# → 201 Created, cliente com status ACTIVE
+
+# 4.2 Listar clientes (USER ou ADMIN)
+curl http://localhost:8082/customers -H "Authorization: Bearer $TOKEN"
+
+# 4.3 Buscar por nome / filtrar por status
+curl "http://localhost:8082/customers/search?name=Joao" -H "Authorization: Bearer $TOKEN"
+curl "http://localhost:8082/customers?status=ACTIVE" -H "Authorization: Bearer $TOKEN"
+
+# 4.4 Consultar o score integrado (WireMock devolve 750)
+curl http://localhost:8082/customers/1/score -H "Authorization: Bearer $TOKEN"
+# → {"cpf":"12345678901","score":750,"classification":"LOW_RISK"}
+
+# 4.5 CPF duplicado → 409 Conflict
+curl -X POST http://localhost:8082/customers \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"name": "Outro", "cpf": "12345678901", "email": "outro@email.com"}'</code></pre>
+
+  <h3>Passo 5 — Testar a resiliência (tempo de resposta)</h3>
+  <p>O WireMock carrega dois stubs em <code>score-mock/mappings/</code>:</p>
+  <ul>
+    <li><code>score_success.json</code> — prioridade 1, responde <code>750</code> imediatamente;</li>
+    <li><code>score_timeout.json</code> — atrasa a resposta em 5 segundos (acima do timeout de 2s).</li>
+  </ul>
+  <p>Para simular lentidão, remova o stub de sucesso e deixe apenas o de timeout:</p>
+  <pre><code># Remove o stub de sucesso (o WireMock recarrega a pasta automaticamente)
+rm score-mock/mappings/score_success.json
+
+# A consulta ao score deve demorar ~2s e retornar o fallback:
+curl http://localhost:8082/customers/1/score -H "Authorization: Bearer $TOKEN"
+# → {"cpf":"12345678901","score":0,"classification":"UNAVAILABLE"}
+
+# Restaura o stub de sucesso (e o container para recarregar, se preciso)
+git checkout -- score-mock/mappings/score_success.json
+docker compose restart wiremock</code></pre>
+
+  <h3>Passo 6 — Testar o processamento assíncrono e a idempotência</h3>
+  <p>
+    Simule o envio de dois eventos <code>CUSTOMER_STATUS_CHANGE</code> <strong>idênticos</strong>
+    (mesmo <code>eventId</code>) diretamente no RabbitMQ:
+  </p>
+  <pre><code># 1ª mensagem: altera o status do cliente 1 para INACTIVE
+curl -X POST http://localhost:15672/api/exchanges/%2f/amq.default/publish \
+  -u guest:guest -H "Content-Type: application/json" \
+  -d '{"properties": {},
+       "routing_key": "customer.status.change.queue",
+       "payload": "{\"eventId\": \"uuid-1234-5678\", \"eventType\": \"CUSTOMER_STATUS_CHANGE\", \"customerId\": 1, \"status\": \"INACTIVE\"}",
+       "payload_encoding": "string"}'
+
+# 2ª mensagem: duplicada (mesmo eventId) → deve ser ignorada
+curl -X POST http://localhost:15672/api/exchanges/%2f/amq.default/publish \
+  -u guest:guest -H "Content-Type: application/json" \
+  -d '{"properties": {},
+       "routing_key": "customer.status.change.queue",
+       "payload": "{\"eventId\": \"uuid-1234-5678\", \"eventType\": \"CUSTOMER_STATUS_CHANGE\", \"customerId\": 1, \"status\": \"INACTIVE\"}",
+       "payload_encoding": "string"}'</code></pre>
+
+  <p>Resultado esperado:</p>
+  <ul>
+    <li>O status do cliente 1 muda para <code>INACTIVE</code>;</li>
+    <li>a tabela <code>tb_processed_messages</code> tem exatamente <strong>1 registro</strong> (o <code>eventId</code>);</li>
+    <li>o log da aplicação exibe <em>"Evento com ID uuid-1234-5678 já foi processado. Ignorando."</em>;</li>
+    <li>as filas <code>customer.status.change.dlq</code> e <code>customer.status.change.queue</code> ficam vazias.</li>
+  </ul>
+  <p>Confira as filas e a mensagem <code>CUSTOMER_CREATED</code> pendente em <code>customer.created.queue</code> pelo console do RabbitMQ (<code>http://localhost:15672</code>).</p>
+
+  <h3>Passo 7 — Testar as permissões (RF06)</h3>
+  <pre><code># Token de um usuário somente-leitura
+USER_TOKEN=$(curl -s -X POST http://localhost:8080/realms/customer-realm/protocol/openid-connect/token \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "client_id=customer-service" -d "username=regular-user" \
+  -d "password=user123" -d "grant_type=password" \
+  | python3 -c "import sys,json;print(json.load(sys.stdin)['access_token'])")
+
+# GET funciona para USER
+curl http://localhost:8082/customers -H "Authorization: Bearer $USER_TOKEN"
+
+# POST é bloqueado para USER → 403 Forbidden
+curl -X POST http://localhost:8082/customers \
+  -H "Authorization: Bearer $USER_TOKEN" -H "Content-Type: application/json" \
+  -d '{"name": "X", "cpf": "00000000000", "email": "x@email.com"}'
+
+# Sem token → 401 Unauthorized
+curl http://localhost:8082/customers</code></pre>
+
+  <h3>Passo 8 — Rodar sem Docker (modo desenvolvimento)</h3>
+  <p>
+    Para subir apenas a aplicação na máquina (com Postgres, RabbitMQ, Keycloak e
+    WireMock rodando via Docker), basta sobrepor as variáveis de ambiente:
+  </p>
+  <pre><code># Suba apenas a infraestrutura
+docker compose up -d postgres rabbitmq keycloak wiremock
+
+# Rode a aplicação (o arquivo application.yml aponta para localhost)
+cd demo-customer-service
+SPRING_DATASOURCE_URL=jdbc:postgresql://localhost:5433/customer_db \
+mvn spring-boot:run</code></pre>
+
+  <h3>Passo 9 — Encerrar</h3>
+  <pre><code>docker compose down          # derruba os serviços
+docker compose down -v       # + remove os volumes de dados</code></pre>
+
+  <div class="card">
+    <strong>Observação importante (modo container × modo host):</strong>
+    dentro do Docker, a aplicação usa <code>JWK-SET-URI=http://keycloak:8080/...</code>
+    e <code>jdbc:postgresql://postgres:5432/...</code> (nomes dos serviços da rede do
+    compose). O <code>application.yml</code> padrão aponta para <code>localhost</code>
+    (modo host) — por isso o compose sobrescreve essas propriedades por variáveis de ambiente.
+  </div>
+</section>
+
+</main>
+
+<footer>
+  demo-customer-service · Java 21 · Spring Boot 4.1.0 · Arquitetura Hexagonal · RabbitMQ · Keycloak · Resilience4j · Testcontainers
+</footer>
+
+</body>
+</html>

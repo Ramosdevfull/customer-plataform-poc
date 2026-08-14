@@ -1,0 +1,16 @@
+{
+  "priority": 1,
+  "request": {
+    "method": "GET",
+    "urlPathPattern": "/scores/([0-9]+)"
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": {
+      "cpf": "{{request.path.[1]}}",
+      "score": 750,
+      "classification": "LOW_RISK"
+    }
+  }
+}

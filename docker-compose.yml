@@ -1,0 +1,77 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: customer_db
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d customer_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:22.0
+    command: start-dev --import-realm
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_HTTP_PORT: 8080
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./keycloak/customer-realm.json:/opt/keycloak/data/import/customer-realm.json:ro
+    healthcheck:
+      test: ["CMD-SHELL", "if (echo > /dev/tcp/localhost/8080) 2>/dev/null; then exit 0; else exit 1; fi"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+
+  wiremock:
+    image: rodolpheche/wiremock:2.28.0
+    command: --global-response-templating
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./score-mock/mappings:/home/wiremock/mappings
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/__admin/mappings"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  customer-service:
+    build: ./demo-customer-service
+    ports:
+      - "8082:8082"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/customer_db
+      SPRING_DATASOURCE_USERNAME: user
+      SPRING_DATASOURCE_PASSWORD: password
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: "5672"
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK-SET-URI: http://keycloak:8080/realms/customer-realm/protocol/openid-connect/certs
+      EXTERNAL_SCORE-SERVICE_URL: http://wiremock:8080
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+      wiremock:
+        condition: service_healthy

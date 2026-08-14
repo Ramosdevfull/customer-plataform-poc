@@ -1,0 +1,16 @@
+{
+  "request": {
+    "method": "GET",
+    "urlPathPattern": "/scores/([0-9]+)"
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "fixedDelayMilliseconds": 5000,
+    "jsonBody": {
+      "cpf": "{{request.path.[1]}}",
+      "score": 800,
+      "classification": "LOW_RISK"
+    }
+  }
+}

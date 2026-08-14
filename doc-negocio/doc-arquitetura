@@ -1,0 +1,991 @@
+
+Especificação técnica
+
+Para este projeto nível sênior, deve-se utilizar a Arquitetura Hexagonal (Ports and Adapters) como a escolha ideal para os microsserviços principais.
+Por que usaremos a arquitetura Hexagonal?
+    - Isolamento de Regras de Negócio: Mantém a entidade Customer e os casos de uso totalmente decoupled (desconectados) de frameworks (Spring), bancos de dados e mensageria (RabbitMQ).  
+    - Facilidade de Testes: Permite testar unitariamente os casos de uso e a lógica de domínio sem subir o contexto do Spring Boot ou mocks pesados.
+    - Resiliência e Troca de Adaptadores: Facilita a substituição ou simulação de integrações externas (como o serviço de Score).
+Topologia de Microsserviços
+    Esta solução será dividida em 3 aplicações / containers independentes:  
+    1. demo-customer-service: O microsserviço principal responsável pelo cadastro de clientes, consumo/publicação no RabbitMQ e consulta REST.
+    2. score-mock-service: Aplicação mock (via WireMock containerizado ou um app Spring mínimo) para simular o endpoint externo GET /scores/{cpf} com latência e falhas controladas.
+    3. identity-provider / Keycloak (ou Spring Authorization Server): Container para gerenciar a emissão de tokens OAuth 2.0 / JWT.
+
+Requisitos Funcionais (RFs)
+    RF01 - Gerenciamento de Clientes: A aplicação deve permitir a criação (POST), atualização (PUT), remoção (DELETE) e consulta por ID (GET) de clientes.  
+    RF02 - Listagem e Filtro de Clientes: A aplicação deve permitir a listagem geral (GET /customers), busca por nome (GET /customers/search?name=...) e filtro por status (GET /customers?status=...).
+    RF03 - Consulta de Score Externo: A aplicação deve disponibilizar o endpoint GET /customers/{id}/score, que consulta o serviço externo através do CPF do cliente e retorna o score e sua classificação.
+    RF04 - Publicação de Evento de Criação: Ao criar um novo cliente com sucesso, a aplicação deve publicar o evento CUSTOMER_CREATED no RabbitMQ com os dados do cliente e do evento.
+    RF05 - Processamento Assíncrono de Status: A aplicação deve consumir eventos CUSTOMER_STATUS_CHANGE da fila do RabbitMQ e atualizar o status do cliente correspondente.
+    RF06 - Autorização Baseada em Perfil:
+        - Perfis USER podem apenas consultar dados (GET).  
+        - Perfis ADMIN possuem acesso total (escrita, alteração e deleção).
+
+
+Requisitos Não Funcionais (RNFs)
+    RNF01 - Arquitetura e Linguagem: Construído utilizando Java 21+ e Spring Boot 3+.
+    RNF02 - Segurança: Acesso protegido via OAuth 2.0 e JWT com a aplicação atuando como um Resource Server.
+    RNF03 - Idempotência e Consistência Eventual: O consumidor RabbitMQ deve ser idempotente, garantindo a consistência dos dados mesmo em caso de mensagens duplicadas.
+    RNF04 - Resiliência e Tratameno de Erros:
+        - Uso de Circuit Breaker, Timeouts e Retry (via Resilience4j) na integração HTTP de Score para tratar indisponibilidade e latência.
+        - Tratamento para CPF duplicado e recurso não encontrado via @ControllerAdvice.
+        - Filas de Dead Letter Exchange (DLX) no RabbitMQ para tratar falhas irreversíveis no processamento de mensagens.
+    RNF05 - Testabilidade: Cobertura de testes unitários com JUnit 5 / Mockito e testes de integração com Testcontainers ou WireMock.
+    RNF06 - Containerização: A solução completa deve ser executável via Docker Compose através de um único comando (docker compose up).    
+
+
+# application.yml
+spring:
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: http://localhost:8088/realms/master
+
+  resilience4j.circuitbreaker:
+    instances:
+      scoreService:
+        slidingWindowSize: 5
+        failureRateThreshold: 50
+        waitDurationInOpenState: 10000ms
+
+  resilience4j.timelimiter:
+    instances:
+      scoreService:
+        timeoutDuration: 2s
+
+
+# Estrutura de Pacotes (Hexagonal)
+
+com.ramoscodev.customer
+├── domain/                      # Core da Aplicação (Sem Spring)
+│   ├── model/ (Customer, Status)
+│   └── port/  (CustomerRepositoryPort, ScoreClientPort, EventPublisherPort)
+├── application/                 # Casos de Uso / Serviços
+│   └── usecase/ (CreateCustomerUseCase, ChangeStatusUseCase, GetScoreUseCase)
+└── infrastructure/              # Adaptadores de Entrada e Saída
+    ├── adapters/
+    │   ├── in/web/              # REST Controllers, DTOs
+    │   ├── in/messaging/        # RabbitMQ Listeners (Idempotentes)
+    │   ├── out/persistence/     # JPA Repositories & Entities
+    │   ├── out/http/            # Client HTTP para Score + Resilience4j
+    │   └── out/messaging/       # RabbitMQ Event Publisher
+    └── config/                  # SecurityConfig, RabbitConfig
+
+
+# Abaixo exemplos de implementações a ser considerado para facilitar nas implementações:
+
+# SecurityConfig.java
+@Configuration
+@EnableWebSecurity
+public class SecurityConfig {
+
+    @Bean
+    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+        http
+            .csrf(AbstractHttpConfigurer::disable)
+            .authorizeHttpRequests(auth -> auth
+                .requestMatchers(HttpMethod.GET, "/customers/**").hasAnyRole("USER", "ADMIN")
+                .requestMatchers("/customers/**").hasRole("ADMIN")
+                .anyRequest().authenticated()
+            )
+            .oauth2ResourceServer(oauth2 -> oauth2.jwt(Customizer.withDefaults()));
+        return http.build();
+    }
+}
+
+# RabbitMQConfig.java
+@Configuration
+public class RabbitMQConfig {
+    public static final String QUEUE_STATUS_CHANGE = "customer.status.change.queue";
+    public static final String EXCHANGE_CUSTOMER = "customer.exchange";
+    public static final String RK_CREATED = "customer.created";
+
+    @Bean
+    public Queue statusChangeQueue() { return new Queue(QUEUE_STATUS_CHANGE, true); }
+    
+    @Bean
+    public TopicExchange customerExchange() { return new TopicExchange(EXCHANGE_CUSTOMER); }
+}
+
+# CustomerStatusListener.java
+package com.ramoscodev.customer.infrastructure.adapters.in.messaging;
+
+import com.ramoscodev.customer.application.usecase.ChangeCustomerStatusUseCase;
+import com.ramoscodev.customer.domain.model.CustomerStatus;
+import com.ramoscodev.customer.infrastructure.adapters.out.persistence.ProcessedMessageEntity;
+import com.ramoscodev.customer.infrastructure.adapters.out.persistence.SpringDataProcessedMessageRepository;
+import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDateTime;
+import java.util.Map;
+
+@Component
+public class CustomerStatusListener {
+
+    private final ChangeCustomerStatusUseCase changeCustomerStatusUseCase;
+    private final SpringDataProcessedMessageRepository processedMessageRepository;
+
+    public CustomerStatusListener(ChangeCustomerStatusUseCase changeCustomerStatusUseCase, 
+                                  SpringDataProcessedMessageRepository processedMessageRepository) {
+        this.changeCustomerStatusUseCase = changeCustomerStatusUseCase;
+        this.processedMessageRepository = processedMessageRepository;
+    }
+
+    @RabbitListener(queues = "customer.status.change.queue")
+    @Transactional
+    public void receiveStatusChangeMessage(Map<String, Object> payload) {
+        String eventId = (String) payload.get("eventId");
+        
+        // Checagem de Idempotência
+        if (processedMessageRepository.existsById(eventId)) {
+            // Evento duplicado descartado sem lançar erro
+            return;
+        }
+
+        Long customerId = Long.valueOf(payload.get("customerId").toString());
+        CustomerStatus newStatus = CustomerStatus.valueOf(payload.get("status").toString());
+
+        changeCustomerStatusUseCase.execute(customerId, newStatus);
+
+        // Marca mensagem como processada
+        processedMessageRepository.save(new ProcessedMessageEntity(eventId, LocalDateTime.now()));
+    }
+}
+
+# Outro exemplo a ser considerado de classe CustomerStatusListener
+# CustomerStatusListener.java
+
+@Component
+@RequiredArgsConstructor
+public class CustomerStatusListener {
+
+    private final ChangeCustomerStatusUseCase useCase;
+    private final ProcessedMessageRepository processedMsgRepo; // Tabela para guardar eventId já processados
+
+    @RabbitListener(queues = RabbitMQConfig.QUEUE_STATUS_CHANGE)
+    @Transactional
+    public void handleStatusChange(CustomerStatusChangeEvent event) {
+        // Garantindo Idempotência
+        if (processedMsgRepo.existsById(event.getEventId())) {
+            log.info("Evento com ID {} já foi processado. Ignorando.", event.getEventId());
+            return;
+        }
+
+        useCase.execute(event.getCustomerId(), event.getStatus());
+        
+        // Registrar ID do Evento Processado
+        processedMsgRepo.save(new ProcessedMessage(event.getEventId(), LocalDateTime.now()));
+    }
+}
+
+# CustomerStatus.java
+package com.ramoscodev.customer.domain.model;
+
+public enum CustomerStatus {
+    ACTIVE,
+    INACTIVE
+}
+
+# Customer.java
+package com.ramoscodev.customer.domain.model;
+
+public class Customer {
+    private Long id;
+    private String name;
+    private String cpf;
+    private String email;
+    private CustomerStatus status;
+
+    public Customer() {}
+
+    public Customer(Long id, String name, String cpf, String email, CustomerStatus status) {
+        this.id = id;
+        this.name = name;
+        this.cpf = cpf;
+        this.email = email;
+        this.status = status;
+    }
+
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+
+    public String getName() { return name; }
+    public void setName(String name) { this.name = name; }
+
+    public String getCpf() { return cpf; }
+    public void setCpf(String cpf) { this.cpf = cpf; }
+
+    public String getEmail() { return email; }
+    public void setEmail(String email) { this.email = email; }
+
+    public CustomerStatus getStatus() { return status; }
+    public void setStatus(CustomerStatus status) { this.status = status; }
+}
+
+# ScoreInfo.java
+package com.ramoscodev.customer.domain.model;
+
+public class ScoreInfo {
+    private String cpf;
+    private Integer score;
+    private String classification;
+
+    public ScoreInfo(String cpf, Integer score, String classification) {
+        this.cpf = cpf;
+        this.score = score;
+        this.classification = classification;
+    }
+
+    public String getCpf() { return cpf; }
+    public Integer getScore() { return score; }
+    public String getClassification() { return classification; }
+}
+
+# CustomerRepositoryPort.java
+package com.ramoscodev.customer.domain.port.out;
+
+import com.ramoscodev.customer.domain.model.Customer;
+import com.ramoscodev.customer.domain.model.CustomerStatus;
+
+import java.util.List;
+import java.util.Optional;
+
+public interface CustomerRepositoryPort {
+    Customer save(Customer customer);
+    Optional<Customer> findById(Long id);
+    Optional<Customer> findByCpf(String cpf);
+    List<Customer> findAll();
+    List<Customer> findByNameContaining(String name);
+    List<Customer> findByStatus(CustomerStatus status);
+    void deleteById(Long id);
+    boolean existsByCpf(String cpf);
+}
+
+# ScoreClientPort.java
+package com.ramoscodev.customer.domain.port.out;
+
+import com.ramoscodev.customer.domain.model.ScoreInfo;
+
+public interface ScoreClientPort {
+    ScoreInfo getScoreByCpf(String cpf);
+}
+
+# EventPublisherPort.java
+package com.ramoscodev.customer.domain.port.out;
+
+import com.ramoscodev.customer.domain.model.Customer;
+
+public interface EventPublisherPort {
+    void publishCustomerCreated(Customer customer);
+}
+
+# CreateCustomerUseCase.java
+package com.ramoscodev.customer.application.usecase;
+
+import com.ramoscodev.customer.domain.model.Customer;
+import com.ramoscodev.customer.domain.model.CustomerStatus;
+import com.ramoscodev.customer.domain.port.out.CustomerRepositoryPort;
+import com.ramoscodev.customer.domain.port.out.EventPublisherPort;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+@Service
+public class CreateCustomerUseCase {
+
+    private final CustomerRepositoryPort customerRepositoryPort;
+    private final EventPublisherPort eventPublisherPort;
+
+    public CreateCustomerUseCase(CustomerRepositoryPort customerRepositoryPort, EventPublisherPort eventPublisherPort) {
+        this.customerRepositoryPort = customerRepositoryPort;
+        this.eventPublisherPort = eventPublisherPort;
+    }
+
+    @Transactional
+    public Customer execute(Customer customer) {
+        if (customerRepositoryPort.existsByCpf(customer.getCpf())) {
+            throw new IllegalArgumentException("CPF já cadastrado no sistema.");
+        }
+
+        customer.setStatus(CustomerStatus.ACTIVE);
+        Customer savedCustomer = customerRepositoryPort.save(customer);
+
+        // Publica o evento CUSTOMER_CREATED assincronamente
+        eventPublisherPort.publishCustomerCreated(savedCustomer);
+
+        return savedCustomer;
+    }
+}
+
+# ChangeCustomerStatusUseCase.java
+package com.ramoscodev.customer.application.usecase;
+
+import com.ramoscodev.customer.domain.model.Customer;
+import com.ramoscodev.customer.domain.model.CustomerStatus;
+import com.ramoscodev.customer.domain.port.out.CustomerRepositoryPort;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+@Service
+public class ChangeCustomerStatusUseCase {
+
+    private final CustomerRepositoryPort customerRepositoryPort;
+
+    public ChangeCustomerStatusUseCase(CustomerRepositoryPort customerRepositoryPort) {
+        this.customerRepositoryPort = customerRepositoryPort;
+    }
+
+    @Transactional
+    public void execute(Long customerId, CustomerStatus newStatus) {
+        Customer customer = customerRepositoryPort.findById(customerId)
+                .orElseThrow(() -> new IllegalArgumentException("Cliente não encontrado com o ID: " + customerId));
+
+        customer.setStatus(newStatus);
+        customerRepositoryPort.save(customer);
+    }
+}
+
+# GetCustomerScoreUseCase.java
+package com.ramoscodev.customer.application.usecase;
+
+import com.ramoscodev.customer.domain.model.Customer;
+import com.ramoscodev.customer.domain.model.ScoreInfo;
+import com.ramoscodev.customer.domain.port.out.CustomerRepositoryPort;
+import com.ramoscodev.customer.domain.port.out.ScoreClientPort;
+import org.springframework.stereotype.Service;
+
+@Service
+public class GetCustomerScoreUseCase {
+
+    private final CustomerRepositoryPort customerRepositoryPort;
+    private final ScoreClientPort scoreClientPort;
+
+    public GetCustomerScoreUseCase(CustomerRepositoryPort customerRepositoryPort, ScoreClientPort scoreClientPort) {
+        this.customerRepositoryPort = customerRepositoryPort;
+        this.scoreClientPort = scoreClientPort;
+    }
+
+    public ScoreInfo execute(Long customerId) {
+        Customer customer = customerRepositoryPort.findById(customerId)
+                .orElseThrow(() -> new IllegalArgumentException("Cliente não encontrado com o ID: " + customerId));
+
+        return scoreClientPort.getScoreByCpf(customer.getCpf());
+    }
+}
+
+# CustomerRequestDTO.java
+package com.ramoscodev.customer.infrastructure.adapters.in.web.dto;
+
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
+
+public record CustomerRequestDTO(
+    @NotBlank(message = "O nome é obrigatório")
+    String name,
+
+    @NotBlank(message = "O CPF é obrigatório")
+    @Pattern(regexp = "\\d{11}", message = "O CPF deve conter exatamente 11 dígitos numéricos")
+    String cpf,
+
+    @NotBlank(message = "O e-mail é obrigatório")
+    @Email(message = "Formato de e-mail inválido")
+    String email
+) {}
+
+# CustomerResponseDTO.java
+package com.ramoscodev.customer.infrastructure.adapters.in.web.dto;
+
+import com.ramoscodev.customer.domain.model.CustomerStatus;
+
+public record CustomerResponseDTO(
+    Long id,
+    String name,
+    String cpf,
+    String email,
+    CustomerStatus status
+) {}
+
+# CustomerController.java
+package com.ramoscodev.customer.infrastructure.adapters.in.web;
+
+import com.ramoscodev.customer.application.usecase.CreateCustomerUseCase;
+import com.ramoscodev.customer.application.usecase.GetCustomerScoreUseCase;
+import com.ramoscodev.customer.domain.model.Customer;
+import com.ramoscodev.customer.domain.model.CustomerStatus;
+import com.ramoscodev.customer.domain.model.ScoreInfo;
+import com.ramoscodev.customer.domain.port.out.CustomerRepositoryPort;
+import com.ramoscodev.customer.infrastructure.adapters.in.web.dto.CustomerRequestDTO;
+import com.ramoscodev.customer.infrastructure.adapters.in.web.dto.CustomerResponseDTO;
+import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/customers")
+public class CustomerController {
+
+    private final CreateCustomerUseCase createCustomerUseCase;
+    private final GetCustomerScoreUseCase getCustomerScoreUseCase;
+    private final CustomerRepositoryPort customerRepositoryPort;
+
+    public CustomerController(CreateCustomerUseCase createCustomerUseCase,
+                              GetCustomerScoreUseCase getCustomerScoreUseCase,
+                              CustomerRepositoryPort customerRepositoryPort) {
+        this.createCustomerUseCase = createCustomerUseCase;
+        this.getCustomerScoreUseCase = getCustomerScoreUseCase;
+        this.customerRepositoryPort = customerRepositoryPort;
+    }
+
+    @PostMapping
+    public ResponseEntity<CustomerResponseDTO> create(@Valid @RequestBody CustomerRequestDTO dto) {
+        Customer customer = new Customer(null, dto.name(), dto.cpf(), dto.email(), null);
+        Customer saved = createCustomerUseCase.execute(customer);
+        return ResponseEntity.status(HttpStatus.CREATED).body(toResponseDTO(saved));
+    }
+
+    @PutMapping("/{id}")
+    public ResponseEntity<CustomerResponseDTO> update(@PathVariable Long id, @Valid @RequestBody CustomerRequestDTO dto) {
+        Customer existing = customerRepositoryPort.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Cliente não encontrado com ID: " + id));
+
+        existing.setName(dto.name());
+        existing.setCpf(dto.cpf());
+        existing.setEmail(dto.email());
+
+        Customer updated = customerRepositoryPort.save(existing);
+        return ResponseEntity.ok(toResponseDTO(updated));
+    }
+
+    @DeleteMapping("/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void delete(@PathVariable Long id) {
+        customerRepositoryPort.deleteById(id);
+    }
+
+    @GetMapping("/{id}")
+    public ResponseEntity<CustomerResponseDTO> getById(@PathVariable Long id) {
+        return customerRepositoryPort.findById(id)
+                .map(this::toResponseDTO)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
+    }
+
+    @GetMapping
+    public ResponseEntity<List<CustomerResponseDTO>> getAllOrByStatus(@RequestParam(required = false) CustomerStatus status) {
+        List<Customer> customers = (status != null) 
+                ? customerRepositoryPort.findByStatus(status) 
+                : customerRepositoryPort.findAll();
+
+        return ResponseEntity.ok(customers.stream().map(this::toResponseDTO).toList());
+    }
+
+    @GetMapping("/search")
+    public ResponseEntity<List<CustomerResponseDTO>> searchByName(@RequestParam String name) {
+        List<Customer> customers = customerRepositoryPort.findByNameContaining(name);
+        return ResponseEntity.ok(customers.stream().map(this::toResponseDTO).toList());
+    }
+
+    @GetMapping("/{id}/score")
+    public ResponseEntity<ScoreInfo> getScore(@PathVariable Long id) {
+        ScoreInfo scoreInfo = getCustomerScoreUseCase.execute(id);
+        return ResponseEntity.ok(scoreInfo);
+    }
+
+    private CustomerResponseDTO toResponseDTO(Customer c) {
+        return new CustomerResponseDTO(c.getId(), c.getName(), c.getCpf(), c.getEmail(), c.getStatus());
+    }
+}
+
+# CustomerEntity.java
+package com.ramoscodev.customer.infrastructure.adapters.out.persistence;
+
+import com.ramoscodev.customer.domain.model.CustomerStatus;
+import jakarta.persistence.*;
+
+@Entity
+@Table(name = "tb_customers")
+public class CustomerEntity {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(nullable = false)
+    private String name;
+
+    @Column(nullable = false, unique = true, length = 11)
+    private String cpf;
+
+    @Column(nullable = false, unique = true)
+    private String email;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private CustomerStatus status;
+
+    public CustomerEntity() {}
+
+    public CustomerEntity(Long id, String name, String cpf, String email, CustomerStatus status) {
+        this.id = id;
+        this.name = name;
+        this.cpf = cpf;
+        this.email = email;
+        this.status = status;
+    }
+
+    public Long getId() { return id; }
+    public String getName() { return name; }
+    public String getCpf() { return cpf; }
+    public String getEmail() { return email; }
+    public CustomerStatus getStatus() { return status; }
+}
+
+# SpringDataCustomerRepository.java
+package com.ramoscodev.customer.infrastructure.adapters.out.persistence;
+
+import com.ramoscodev.customer.domain.model.CustomerStatus;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import java.util.List;
+import java.util.Optional;
+
+public interface SpringDataCustomerRepository extends JpaRepository<CustomerEntity, Long> {
+    Optional<CustomerEntity> findByCpf(String cpf);
+    List<CustomerEntity> findByNameContainingIgnoreCase(String name);
+    List<CustomerEntity> findByStatus(CustomerStatus status);
+    boolean existsByCpf(String cpf);
+}
+
+# CustomerRepositoryAdapter.java
+package com.ramoscodev.customer.infrastructure.adapters.out.persistence;
+
+import com.ramoscodev.customer.domain.model.Customer;
+import com.ramoscodev.customer.domain.model.CustomerStatus;
+import com.ramoscodev.customer.domain.port.out.CustomerRepositoryPort;
+import org.springframework.stereotype.Component;
+
+import java.util.List;
+import java.util.Optional;
+
+@Component
+public class CustomerRepositoryAdapter implements CustomerRepositoryPort {
+
+    private final SpringDataCustomerRepository repository;
+
+    public CustomerRepositoryAdapter(SpringDataCustomerRepository repository) {
+        this.repository = repository;
+    }
+
+    @Override
+    public Customer save(Customer customer) {
+        CustomerEntity entity = new CustomerEntity(customer.getId(), customer.getName(), customer.getCpf(), customer.getEmail(), customer.getStatus());
+        CustomerEntity saved = repository.save(entity);
+        return toDomain(saved);
+    }
+
+    @Override
+    public Optional<Customer> findById(Long id) {
+        return repository.findById(id).map(this::toDomain);
+    }
+
+    @Override
+    public Optional<Customer> findByCpf(String cpf) {
+        return repository.findByCpf(cpf).map(this::toDomain);
+    }
+
+    @Override
+    public List<Customer> findAll() {
+        return repository.findAll().stream().map(this::toDomain).toList();
+    }
+
+    @Override
+    public List<Customer> findByNameContaining(String name) {
+        return repository.findByNameContainingIgnoreCase(name).stream().map(this::toDomain).toList();
+    }
+
+    @Override
+    public List<Customer> findByStatus(CustomerStatus status) {
+        return repository.findByStatus(status).stream().map(this::toDomain).toList();
+    }
+
+    @Override
+    public void deleteById(Long id) {
+        repository.deleteById(id);
+    }
+
+    @Override
+    public boolean existsByCpf(String cpf) {
+        return repository.existsByCpf(cpf);
+    }
+
+    private Customer toDomain(CustomerEntity entity) {
+        return new Customer(entity.getId(), entity.getName(), entity.getCpf(), entity.getEmail(), entity.getStatus());
+    }
+}
+
+# RabbitMQEventPublisherAdapter.java
+package com.ramoscodev.customer.infrastructure.adapters.out.messaging;
+
+import com.ramoscodev.customer.domain.model.Customer;
+import com.ramoscodev.customer.domain.port.out.EventPublisherPort;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.stereotype.Component;
+
+import java.time.Instant;
+import java.util.Map;
+import java.util.UUID;
+
+@Component
+public class RabbitMQEventPublisherAdapter implements EventPublisherPort {
+
+    private final RabbitTemplate rabbitTemplate;
+
+    public RabbitMQEventPublisherAdapter(RabbitTemplate rabbitTemplate) {
+        this.rabbitTemplate = rabbitTemplate;
+    }
+
+    @Override
+    public void publishCustomerCreated(Customer customer) {
+        Map<String, Object> eventPayload = Map.of(
+            "eventId", UUID.randomUUID().toString(),
+            "eventType", "CUSTOMER_CREATED",
+            "customerId", customer.getId(),
+            "createdAt", Instant.now().toString()
+        );
+
+        rabbitTemplate.convertAndSend("customer.exchange", "customer.created", eventPayload);
+    }
+}
+
+# ScoreClientAdapter.java
+package com.ramoscodev.customer.infrastructure.adapters.out.http;
+
+import com.ramoscodev.customer.domain.model.ScoreInfo;
+import com.ramoscodev.customer.domain.port.out.ScoreClientPort;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestTemplate;
+
+import java.util.Map;
+
+@Component
+public class ScoreClientAdapter implements ScoreClientPort {
+
+    private final RestTemplate restTemplate;
+    private final String scoreServiceUrl;
+
+    public ScoreClientAdapter(RestTemplate restTemplate, @Value("${external.score-service.url}") String scoreServiceUrl) {
+        this.restTemplate = restTemplate;
+        this.scoreServiceUrl = scoreServiceUrl;
+    }
+
+    @Override
+    @CircuitBreaker(name = "scoreService", fallbackMethod = "fallbackScore")
+    public ScoreInfo getScoreByCpf(String cpf) {
+        String url = scoreServiceUrl + "/scores/" + cpf;
+        Map<String, Object> response = restTemplate.getForObject(url, Map.class);
+
+        return new ScoreInfo(
+            (String) response.get("cpf"),
+            (Integer) response.get("score"),
+            (String) response.get("classification")
+        );
+    }
+
+    // Método Fallback acionado quando o serviço externo está indisponível ou com lentidão excessiva
+    public ScoreInfo fallbackScore(String cpf, Throwable t) {
+        return new ScoreInfo(cpf, 0, "UNAVAILABLE");
+    }
+}
+
+# GlobalExceptionHandler.java
+package com.ramoscodev.customer.infrastructure.config;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+
+import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.Map;
+
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<Map<String, Object>> handleIllegalArgument(IllegalArgumentException ex) {
+        Map<String, Object> response = new HashMap<>();
+        response.put("timestamp", LocalDateTime.now());
+        response.put("error", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+    }
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<Map<String, Object>> handleValidation(MethodArgumentNotValidException ex) {
+        Map<String, Object> errors = new HashMap<>();
+        ex.getBindingResult().getFieldErrors().forEach(error -> 
+            errors.put(error.getField(), error.getDefaultMessage())
+        );
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("timestamp", LocalDateTime.now());
+        response.put("errors", errors);
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+    }
+}
+
+# CreateCustomerUseCaseTest.java
+package com.ramoscodev.customer.application.usecase;
+
+import com.ramoscodev.customer.domain.model.Customer;
+import com.ramoscodev.customer.domain.model.CustomerStatus;
+import com.ramoscodev.customer.domain.port.out.CustomerRepositoryPort;
+import com.ramoscodev.customer.domain.port.out.EventPublisherPort;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
+
+class CreateCustomerUseCaseTest {
+
+    private CustomerRepositoryPort repositoryPort;
+    private EventPublisherPort eventPublisherPort;
+    private CreateCustomerUseCase useCase;
+
+    @BeforeEach
+    void setUp() {
+        repositoryPort = Mockito.mock(CustomerRepositoryPort.class);
+        eventPublisherPort = Mockito.mock(EventPublisherPort.class);
+        useCase = new CreateCustomerUseCase(repositoryPort, eventPublisherPort);
+    }
+
+    @Test
+    @DisplayName("Deve criar cliente com sucesso e publicar evento")
+    void shouldCreateCustomerSuccessfully() {
+        Customer customer = new Customer(null, "João Silva", "12345678901", "joao@email.com", null);
+        
+        when(repositoryPort.existsByCpf("12345678901")).thenReturn(false);
+        when(repositoryPort.save(any(Customer.class))).thenAnswer(invocation -> {
+            Customer c = invocation.getArgument(0);
+            c.setId(1L);
+            return c;
+        });
+
+        Customer result = useCase.execute(customer);
+
+        assertNotNull(result.getId());
+        assertEquals(CustomerStatus.ACTIVE, result.getStatus());
+        verify(eventPublisherPort, times(1)).publishCustomerCreated(result);
+    }
+
+    @Test
+    @DisplayName("Deve lançar exceção ao tentar cadastrar CPF duplicado")
+    void shouldThrowExceptionWhenCpfExists() {
+        Customer customer = new Customer(null, "João Silva", "12345678901", "joao@email.com", null);
+        when(repositoryPort.existsByCpf("12345678901")).thenReturn(true);
+
+        assertThrows(IllegalArgumentException.class, () -> useCase.execute(customer));
+        verify(repositoryPort, never()).save(any());
+        verify(eventPublisherPort, never()).publishCustomerCreated(any());
+    }
+}
+
+# Crie um Dockerfile no diretório demo-customer-service
+FROM eclipse-temurin:17-jdk-alpine
+VOLUME /tmp
+COPY target/*.jar app.jar
+ENTRYPOINT ["java","-jar","/app.jar"]
+
+# Atualizar o docker-compose.yml incluindo demo-customer-service
+customer-service:
+    build: ./customer-service
+    ports:
+      - "8082:8082"
+    depends_on:
+      - postgres
+      - rabbitmq
+      - keycloak
+      - wiremock
+
+
+# Teste Automatizado com Testcontainers
+@SpringBootTest
+@Testcontainers
+class CustomerEventPublisherIntegrationTest {
+
+    @Container
+    static RabbitMQContainer rabbit = new RabbitMQContainer("rabbitmq:3-management-alpine");
+
+    @Autowired
+    private CreateCustomerUseCase createCustomerUseCase;
+
+    @Autowired
+    private RabbitTemplate rabbitTemplate;
+
+    @Test
+    void shouldPublishCustomerCreatedEvent() {
+        Customer customer = new Customer(null, "Maria Souza", "98765432100", "maria@email.com", null);
+        Customer saved = createCustomerUseCase.execute(customer);
+
+        // Consome a mensagem publicada no teste para asserção
+        Object message = rabbitTemplate.receiveAndConvert("customer.created.queue", 5000);
+        assertNotNull(message);
+    }
+}
+
+# Testar a Resiliência dos Microsserviços
+- Buscando tratamento para indisponibilidade e demora excessiva (timeout) na resposta do serviço externo de Score.
+
+# Cenário 1: 
+    Simulando Demora Excessiva (Timeout / Slow Response)
+
+Configure um stub do WireMock para atrasar a resposta em 5 segundos (superior ao timeout de 2 segundos configurado na aplicação).
+
+Crie o arquivo de teste score-mock/mappings/score_timeout.json:
+{
+  "request": {
+    "method": "GET",
+    "urlPathPattern": "/scores/([0-9]+)"
+  },
+  "response": {
+    "status": 200,
+    "fixedDelayMilliseconds": 5000,
+    "jsonBody": {
+      "cpf": "{{request.path.[1]}}",
+      "score": 800,
+      "classification": "LOW_RISK"
+    }
+  }
+}
+
+# Como Executar o Teste:
+
+    Realize a chamada GET /customers/1/score.
+
+    Resultado Esperado: O TimeLimiter/Circuit Breaker estoura o tempo limite (2s) e executa o método de fallback fallbackScore(...), retornando HTTP 200 ou 503 degradado com resposta graciosa:
+    JSON
+
+{
+  "cpf": "12345678901",
+  "score": 0,
+  "classification": "UNAVAILABLE"
+}
+
+# Cenário 2: 
+    Simulando Indisponibilidade Total (Erro 500 ou Server Down)
+
+Configure o WireMock para retornar erro 500 Internal Server Error ou simplesmente pare o container do WireMock (docker stop score_mock).
+
+    Realize 5 chamadas consecutivas GET /customers/1/score.
+
+    Resultado Esperado:
+
+        Nas primeiras chamadas, o Resilience4j registrará as falhas.
+
+        Após atingir o limite (failureRateThreshold: 50%), o Circuit Breaker muda para o estado OPEN.
+
+        Chamadas subsequentes nem chegam a tentar bater no serviço externo, retornando o fallback imediatamente em milissegundos, protegendo os recursos da aplicação.
+
+# Testar a Idempotência (Evitando Alterações Repetidas)
+
+O requisito estabelece que a mesma mensagem do evento CUSTOMER_STATUS_CHANGE pode ser entregue mais de uma vez e o sistema deve manter os dados consistentes.  
+
+# - Teste Prático de Duplicidade
+# Passo 1: Disparar a 1ª Mensagem
+
+Envie uma mensagem via API HTTP Management do RabbitMQ ou publique diretamente na fila customer.status.change.queue:
+curl -X POST http://localhost:15672/api/exchanges/%2f/amq.default/publish \
+  -u guest:guest \
+  -H "Content-Type: application/json" \
+  -d '{
+    "properties": {},
+    "routing_key": "customer.status.change.queue",
+    "payload": "{\"eventId\": \"uuid-1234-5678\", \"eventType\": \"CUSTOMER_STATUS_CHANGE\", \"customerId\": 1, \"status\": \"INACTIVE\"}",
+    "payload_encoding": "string"
+  }'
+
+Resultado Esperado no Banco de Dados:
+    - Status do cliente de id = 1 é alterado para INACTIVE.  
+    - Um registro com eventId = "uuid-1234-5678" é inserido na tabela tb_processed_messages.
+
+# Passo 2: Disparar a 2ª Mensagem (Duplicada)
+
+Execute exatamente o mesmo comando curl com o mesmo eventId ("uuid-1234-5678").
+Resultado Esperado:
+
+    - O consumidor reconhece a mensagem (ACK), evitando reprocessamento ou loop infinitos na fila.
+    - O log da aplicação exibirá: [INFO] Evento com ID uuid-1234-5678 já foi processado. Ignorando.
+    - Nenhuma atualização redundante é efetuada no banco de dados e a tabela tb_processed_messages permanece intacta com apenas 1 registro.
+
+# Teste de Unidade / Integração para Idempotência
+@SpringBootTest
+class IdempotencyIntegrationTest {
+
+    @Autowired
+    private CustomerStatusListener listener;
+
+    @Autowired
+    private SpringDataProcessedMessageRepository processedMessageRepository;
+
+    @Test
+    void shouldProcessMessageOnlyOnceWhenDuplicateEventReceived() {
+        Map<String, Object> payload = Map.of(
+            "eventId", "evt-unique-999",
+            "eventType", "CUSTOMER_STATUS_CHANGE",
+            "customerId", 1,
+            "status", "INACTIVE"
+        );
+
+        // Primeira execução
+        listener.receiveStatusChangeMessage(payload);
+        assertTrue(processedMessageRepository.existsById("evt-unique-999"));
+
+        // Segunda execução (duplicada)
+        assertDoesNotThrow(() -> listener.receiveStatusChangeMessage(payload));
+    }
+}
+
+
+# Desejamos deixar tudo bem facilitado para que possamos executar todo o ecossistema com um único comando:
+ - docker compose up --build
+
+# Observação : Verificar se já existe algum container que esta rodando imagem postgres e qual é a network, caso seja possível usar a mesma imagem localmente.
+
+# Guia de Execução e Homologação
+
+1. Subir os containers de suporte (Postgres, RabbitMQ, Keycloak, WireMock):
+    docker compose up -d postgres rabbitmq keycloak wiremock
+
+2. Compilar e rodar a suíte de testes:
+    mvn clean test
+
+3. Gerar a imagem Docker do customer-service e rodar a solução completa:
+    mvn clean package -DskipTests
+    docker compose up --build
+
+4. Testando a API REST (Exemplo via curl):
+    - Cadastrar Cliente:
+        curl -X POST http://localhost:8082/customers \
+  -H "Content-Type: application/json" \
+  -d '{"name": "João da Silva", "cpf": "12345678901", "email": "joao@email.com"}'
+
+    - Consultar Score Integrado:
+        curl -X GET http://localhost:8082/customers/1/score
+
+
+
+

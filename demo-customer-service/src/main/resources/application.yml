@@ -1,0 +1,62 @@
+spring:
+  application:
+    name: demo-customer-service
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/customer_db
+    username: user
+    password: password
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: guest
+    password: guest
+    listener:
+      simple:
+        default-requeue-rejected: false
+
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: http://localhost:8080/realms/customer-realm
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      scoreService:
+        slidingWindowSize: 5
+        failureRateThreshold: 50
+        waitDurationInOpenState: 10000ms
+        permittedNumberOfCallsInHalfOpenState: 3
+        registerHealthIndicator: true
+  timelimiter:
+    instances:
+      scoreService:
+        timeoutDuration: 2s
+  retry:
+    instances:
+      scoreService:
+        maxAttempts: 2
+        waitDuration: 500ms
+
+external:
+  score-service:
+    url: http://localhost:8081
+
+app:
+  security:
+    enabled: true
+
+server:
+  port: 8082
